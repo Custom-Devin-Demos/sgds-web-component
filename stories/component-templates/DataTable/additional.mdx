@@ -179,3 +179,389 @@ Listen for `sgds-sort`, pass `detail.key` and `detail.direction` to your API req
 <Canvas of={DataTableStories.SortEvent}>
   <Story of={DataTableStories.SortEvent} />
 </Canvas>
+
+## Data mode
+
+Data mode renders a single ARIA grid from data instead of slotted rows.
+It turns on when `columns` is non-empty, or when the table has at least one `sgds-data-table-column` child.
+The `columns` property takes precedence over column children.
+Slotted mode (`sgds-data-table-row`, `sgds-data-table-head` and `sgds-data-table-cell`) keeps working without changes.
+
+### Columns property
+
+Pass column definitions through `columns` and row objects through `rows`.
+Each row needs a stable identity in the field named by `rowKey` (default `"id"`).
+Set `label` to give the grid an accessible name when no visible heading labels it.
+
+<Canvas of={DataTableStories.DataModeColumns}>
+  <Story of={DataTableStories.DataModeColumns} />
+</Canvas>
+
+```js
+const table = document.querySelector("sgds-data-table");
+table.columns = [
+  { key: "name", header: "Name", sortable: true },
+  { key: "age", header: "Age", sortable: true, align: "right" }
+];
+table.rows = [
+  { id: 1, name: "Amy Tan", age: 28 },
+  { id: 2, name: "Ben Lim", age: 35 }
+];
+```
+
+### Column elements
+
+Declare columns in markup with `sgds-data-table-column`. The element renders nothing itself.
+It supports `key`, `header`, `sortable`, `filterable`, `align` and `width`.
+Use the `columns` property instead when a column needs `accessor`, `render`, `sortFn` or `filterFn`.
+
+<Canvas of={DataTableStories.DataModeColumnChildren}>
+  <Story of={DataTableStories.DataModeColumnChildren} />
+</Canvas>
+
+### Sort
+
+Set `sortable: true` on a column to make its header sortable.
+Each activation cycles the column through none, ascending, descending and back to none.
+Set `sort` to apply an initial sort. Sorting is stable, numbers sort numerically and empty values always sort last.
+
+<Canvas of={DataTableStories.DataModeSort}>
+  <Story of={DataTableStories.DataModeSort} />
+</Canvas>
+
+### Multi-column sort
+
+Set `multiSort` to sort by more than one column.
+Hold Shift while you activate a header to add that column to the end of the sort, or to cycle it where it already sits.
+Activating a header without Shift replaces the whole sort.
+Index 0 of `sort` is the primary sort.
+
+<Canvas of={DataTableStories.DataModeMultiSort}>
+  <Story of={DataTableStories.DataModeMultiSort} />
+</Canvas>
+
+### Global filter
+
+Set `showGlobalFilter` to render a search input above the grid.
+The global filter is a case-insensitive substring match across every column.
+Changing a filter resets `currentPage` to 1 and emits `sgds-filter`.
+
+<Canvas of={DataTableStories.DataModeGlobalFilter}>
+  <Story of={DataTableStories.DataModeGlobalFilter} />
+</Canvas>
+
+### Column filters
+
+Set `filterable: true` on a column to add a filter input for it in a second header row.
+Column filters are combined with each other and with the global filter, so a row must match all of them.
+Set `columnFilters` to apply initial filter values.
+
+<Canvas of={DataTableStories.DataModeColumnFilters}>
+  <Story of={DataTableStories.DataModeColumnFilters} />
+</Canvas>
+
+### Client pagination
+
+In the default `mode="client"`, the table slices filtered and sorted rows into pages of `itemsPerPage`.
+Changing page emits one `sgds-page-change` event.
+
+<Canvas of={DataTableStories.DataModePagination}>
+  <Story of={DataTableStories.DataModePagination} />
+</Canvas>
+
+### Server mode
+
+Use `mode="server"` when your API returns one page at a time. Pass only the current page in `rows` and the total in `dataLength`.
+Set `serverSort` and `serverFilter` to turn off local sorting and filtering.
+The table still updates its own `sort`, `globalFilter`, `columnFilters` and `currentPage` and emits `sgds-sort`, `sgds-filter` and `sgds-page-change`.
+Listen to these events, request the matching page, then replace `rows` and `dataLength`. Set `loading` while the request is in progress.
+
+<Canvas of={DataTableStories.DataModeServer}>
+  <Story of={DataTableStories.DataModeServer} />
+</Canvas>
+
+```js
+const table = document.querySelector("sgds-data-table");
+const reload = async () => {
+  table.loading = true;
+  const { rows, total } = await fetchStaff({
+    sort: table.sort,
+    globalFilter: table.globalFilter,
+    columnFilters: table.columnFilters,
+    page: table.currentPage,
+    pageSize: table.itemsPerPage
+  });
+  table.rows = rows;
+  table.dataLength = total;
+  table.loading = false;
+};
+table.addEventListener("sgds-sort", reload);
+table.addEventListener("sgds-filter", reload);
+table.addEventListener("sgds-page-change", reload);
+```
+
+### Multi-select
+
+Set `multiSelect` to add a checkbox column. Selection is keyed by `row[rowKey]`, so it persists across sorting, filtering and paging.
+The header checkbox acts on the current page. It is checked when every row on the page is selected and indeterminate when only some are.
+Activating it selects every row on the page, or clears them when they are all selected.
+Read the selection from `selectedKeys` or `selectedRows`, and call `clearSelection()` to clear it.
+
+<Canvas of={DataTableStories.DataModeMultiSelect}>
+  <Story of={DataTableStories.DataModeMultiSelect} />
+</Canvas>
+
+### Dense density
+
+Set `density="dense"` to reduce row height and cell padding.
+
+<Canvas of={DataTableStories.DataModeDense}>
+  <Story of={DataTableStories.DataModeDense} />
+</Canvas>
+
+### Sticky header
+
+Set `stickyHeader` and `--sgds-data-table-max-height` to keep the header row visible while the body scrolls.
+
+<Canvas of={DataTableStories.DataModeStickyHeader}>
+  <Story of={DataTableStories.DataModeStickyHeader} />
+</Canvas>
+
+```html
+<sgds-data-table stickyHeader style="--sgds-data-table-max-height: 320px"></sgds-data-table>
+```
+
+### Loading
+
+Set `loading` to show skeleton rows. The grid gets `aria-busy="true"` while loading.
+
+<Canvas of={DataTableStories.DataModeLoading}>
+  <Story of={DataTableStories.DataModeLoading} />
+</Canvas>
+
+### Empty with custom no-data slot
+
+When there are no rows to show, the grid renders one full-width row with the `no-data` slot.
+The default content is "No data".
+
+<Canvas of={DataTableStories.DataModeEmpty}>
+  <Story of={DataTableStories.DataModeEmpty} />
+</Canvas>
+
+### Custom cell render
+
+Use `render(value, row, rowIndex)` on a column definition to return a Lit template, a string or a number.
+Use `accessor(row)` to derive the value used for display, sorting and filtering.
+Interactive content inside a cell gets `tabindex="-1"` so the grid keeps a single tab stop.
+
+<Canvas of={DataTableStories.DataModeCustomRender}>
+  <Story of={DataTableStories.DataModeCustomRender} />
+</Canvas>
+
+```js
+import { html } from "lit";
+
+table.columns = [
+  { key: "name", header: "Name" },
+  {
+    key: "status",
+    header: "Status",
+    render: value => html`<sgds-badge variant=${value === "Active" ? "success" : "neutral"}>${value}</sgds-badge>`
+  },
+  { key: "age", header: "Age", align: "right", render: value => `${value} years` }
+];
+```
+
+### Custom theming
+
+Override the component CSS custom properties, or style the exposed CSS parts with `::part()`.
+Use SGDS semantic tokens so that day, night and brand themes keep working.
+
+<Canvas of={DataTableStories.DataModeTheming}>
+  <Story of={DataTableStories.DataModeTheming} />
+</Canvas>
+
+```css
+.data-table-themed {
+  --sgds-data-table-header-bg: var(--sgds-primary-surface-muted);
+  --sgds-data-table-border-color: var(--sgds-primary-border-color-muted);
+  --sgds-data-table-row-hover-bg: var(--sgds-primary-surface-translucent);
+}
+.data-table-themed::part(header-cell) {
+  font-weight: var(--sgds-font-weight-bold);
+}
+```
+
+### Keyboard navigation
+
+The grid is a single tab stop and follows the WAI-ARIA APG data grid pattern.
+Exactly one cell, or the filter input inside it, has `tabindex="0"`. The table remembers that position, and after a sort or page change it moves focus to the nearest valid cell.
+
+<Canvas of={DataTableStories.DataModeKeyboard}>
+  <Story of={DataTableStories.DataModeKeyboard} />
+</Canvas>
+
+| Key                                                  | Action                                                                                   |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Tab                                                  | Moves focus into the grid, to the last focused cell. Pressing Tab again leaves the grid. |
+| Arrow right, Arrow left                              | Moves focus one cell right or left.                                                      |
+| Arrow down, Arrow up                                 | Moves focus one row down or up, including between the header, filter and body rows.      |
+| Home, End                                            | Moves focus to the first or last cell of the current row.                                |
+| Ctrl + Home, Ctrl + End                              | Moves focus to the first or last cell of the grid.                                       |
+| Page up, Page down                                   | Goes to the previous or next page in client pagination.                                  |
+| Enter, Space on a sortable header                    | Sorts by the column.                                                                     |
+| Shift + Enter, Shift + Space on a sortable header    | Adds the column to the sort when `multiSort` is set.                                     |
+| Enter, Space on a checkbox cell                      | Toggles the row selection. On the header checkbox cell, toggles select-all for the page. |
+| Arrow left, Arrow right, Home, End in a filter input | Edits the filter text.                                                                   |
+| Arrow up, Arrow down in a filter input               | Leaves the input and moves to the row above or below.                                    |
+
+### Accessibility
+
+- The grid is a native `table` with `role="grid"`, `aria-label` from `label`, `aria-rowcount` and `aria-colcount`. Each row has a 1-based `aria-rowindex` that counts header rows and, in client mode, the page offset.
+- Header cells are `th scope="col"` and body cells are `td role="gridcell"`.
+- Only the primary sorted column has `aria-sort`. Other sorted columns include visually hidden text such as "sorted descending, priority 2".
+- Each filter input has an accessible name of the form "Filter Name".
+- With `multiSelect`, the grid has `aria-multiselectable="true"` and selected rows have `aria-selected="true"`. Checkboxes are labelled "Select all rows" and "Select row 1".
+- A visually hidden `role="status"` live region announces the number of results after a filter, sort or page change.
+- While `loading`, the grid has `aria-busy="true"`.
+- Set `label` when no visible heading names the table.
+
+## Data mode API
+
+### Properties
+
+| Property            | Attribute           | Type                                                 | Default         | Description                                                                  |
+| ------------------- | ------------------- | ---------------------------------------------------- | --------------- | ---------------------------------------------------------------------------- |
+| `columns`           | -                   | `SgdsDataTableColumnDefinition[]`                    | `[]`            | Column definitions. Takes precedence over `sgds-data-table-column` children. |
+| `rows`              | -                   | `Record<string, unknown>[]`                          | `[]`            | Row objects. In server mode, pass only the current page.                     |
+| `rowKey`            | `rowKey`            | `string`                                             | `"id"`          | Field on each row used as its identity for selection.                        |
+| `sort`              | -                   | `SgdsDataTableSortSpec[]`                            | `[]`            | Sort state as `[{ key, direction }]`. Index 0 is the primary sort.           |
+| `multiSort`         | `multiSort`         | `boolean`                                            | `false`         | Shift + activate adds or cycles a column in the sort.                        |
+| `globalFilter`      | `globalFilter`      | `string`                                             | `""`            | Case-insensitive substring matched against every column.                     |
+| `columnFilters`     | -                   | `Record<string, string>`                             | `{}`            | Per-column filter text keyed by column `key`.                                |
+| `showGlobalFilter`  | `showGlobalFilter`  | `boolean`                                            | `false`         | Renders a search input above the grid.                                       |
+| `serverFilter`      | `serverFilter`      | `boolean`                                            | `false`         | Turns off local filtering.                                                   |
+| `serverSort`        | `serverSort`        | `boolean`                                            | `false`         | Turns off local sorting.                                                     |
+| `mode`              | `mode`              | `"client" \| "server"`                               | `"client"`      | `server` turns off local pagination.                                         |
+| `multiSelect`       | `multiSelect`       | `boolean`                                            | `false`         | Adds a checkbox column.                                                      |
+| `selectedKeys`      | -                   | `(string \| number)[]`                               | `[]`            | Keys of the selected rows.                                                   |
+| `density`           | `density`           | `"comfortable" \| "dense"`                           | `"comfortable"` | Row height and cell padding. Reflected.                                      |
+| `stickyHeader`      | `stickyHeader`      | `boolean`                                            | `false`         | Keeps the header visible while the body scrolls. Reflected.                  |
+| `label`             | `label`             | `string`                                             | `""`            | Accessible name of the grid.                                                 |
+| `loading`           | `loading`           | `boolean`                                            | `false`         | Shows skeleton rows and sets `aria-busy`.                                    |
+| `currentPage`       | `currentPage`       | `number`                                             | `1`             | Current page, 1-based.                                                       |
+| `itemsPerPage`      | `itemsPerPage`      | `number`                                             | `5`             | Rows per page.                                                               |
+| `dataLength`        | `dataLength`        | `number`                                             | `0`             | Total rows in server mode.                                                   |
+| `paginationVariant` | `paginationVariant` | `"default" \| "number" \| "button" \| "description"` | `"default"`     | Variant of the pagination.                                                   |
+| `paginationSummary` | `paginationSummary` | `string`                                             | `""`            | Custom footer summary text.                                                  |
+| `layout`            | `layout`            | `"auto" \| "fixed"`                                  | `"auto"`        | CSS `table-layout`.                                                          |
+
+Read-only members: `isDataMode` (`boolean`) and `selectedRows` (row objects for `selectedKeys`). Method: `clearSelection()` clears the selection and emits `sgds-selection-change`.
+
+#### Column definition
+
+| Field        | Type                                                           | Description                                                          |
+| ------------ | -------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `key`        | `string`                                                       | Field on each row, and the column identity in sort and filter state. |
+| `header`     | `string`                                                       | Visible header label.                                                |
+| `sortable`   | `boolean`                                                      | Enables sorting on the header.                                       |
+| `filterable` | `boolean`                                                      | Adds a filter input for the column.                                  |
+| `align`      | `"left" \| "right"`                                            | Alignment of header and body cells. Default `"left"`.                |
+| `width`      | `string`                                                       | CSS width, for example `"120px"`.                                    |
+| `accessor`   | `(row) => unknown`                                             | Value used for display, sorting and filtering. Default `row[key]`.   |
+| `render`     | `(value, row, rowIndex) => TemplateResult \| string \| number` | Custom cell content.                                                 |
+| `sortFn`     | `(a, b) => number`                                             | Ascending comparator for the column.                                 |
+| `filterFn`   | `(value, query, row) => boolean`                               | Column filter predicate.                                             |
+
+### Events
+
+| Event                   | Detail                                                                                             | When                                                                                        |
+| ----------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `sgds-sort`             | `{ key: string, direction: "ascending" \| "descending" \| "none", sort: SgdsDataTableSortSpec[] }` | Every sort change in data mode. In slotted mode, only with `serverSort` and without `sort`. |
+| `sgds-filter`           | `{ globalFilter: string, columnFilters: Record<string, string>, filteredCount: number }`           | The global or a column filter changes. `currentPage` resets to 1.                           |
+| `sgds-page-change`      | `{ currentPage: number, itemsPerPage: number }`                                                    | The page changes. Emitted once per change.                                                  |
+| `sgds-selection-change` | `{ selectedKeys: (string \| number)[], selectedRows: object[] }`                                   | The selection changes. In slotted mode, keys are row indices.                               |
+| `sgds-row-select`       | `{ selected: Record<string, string>[] }`                                                           | Deprecated. Slotted mode only. Use `sgds-selection-change`.                                 |
+
+### Slots
+
+| Slot      | Description                                                                                          |
+| --------- | ---------------------------------------------------------------------------------------------------- |
+| (default) | Slotted mode: `sgds-data-table-row` elements. Data mode: optional `sgds-data-table-column` elements. |
+| `no-data` | Content shown when there are no rows and `loading` is false. Default "No data".                      |
+
+### CSS parts
+
+| Part                 | Description                                       |
+| -------------------- | ------------------------------------------------- |
+| `base`               | Outer wrapper.                                    |
+| `toolbar`            | Area above the grid that holds the global filter. |
+| `global-filter`      | Global filter input.                              |
+| `table-container`    | Scroll container of the grid.                     |
+| `table`              | The `table role="grid"` element.                  |
+| `header-row`         | Column header row.                                |
+| `header-cell`        | Column header cell.                               |
+| `sort-indicator`     | Sort icon in a sortable header.                   |
+| `filter-row`         | Header row that holds the column filters.         |
+| `filter-input`       | Column filter input.                              |
+| `row`                | Body row.                                         |
+| `cell`               | Body cell.                                        |
+| `checkbox-cell`      | Checkbox cell in the header and body.             |
+| `empty`              | Full-width row shown when there are no rows.      |
+| `loading`            | Skeleton row shown while loading.                 |
+| `footer`             | Footer that holds the summary and pagination.     |
+| `pagination-summary` | Results summary in the footer.                    |
+| `pagination`         | The `sgds-pagination` element.                    |
+
+### CSS custom properties
+
+| Property                                | Default                                                              | Description                                                       |
+| --------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `--sgds-data-table-max-height`          | `none`                                                               | Maximum height of the scroll container. Pair with `stickyHeader`. |
+| `--sgds-data-table-header-bg`           | `var(--sgds-surface-default)`                                        | Header background.                                                |
+| `--sgds-data-table-border-color`        | `var(--sgds-border-color-muted)`                                     | Row and cell border colour.                                       |
+| `--sgds-data-table-row-hover-bg`        | `var(--sgds-bg-translucent-subtle)`                                  | Row background on hover.                                          |
+| `--sgds-data-table-row-selected-bg`     | `var(--sgds-primary-surface-translucent)`                            | Background of selected rows.                                      |
+| `--sgds-data-table-cell-padding-block`  | Depends on `density`                                                 | Vertical cell padding.                                            |
+| `--sgds-data-table-cell-padding-inline` | Depends on `density`                                                 | Horizontal cell padding.                                          |
+| `--sgds-data-table-cell-min-height`     | `var(--sgds-dimension-56)`, or `var(--sgds-dimension-40)` when dense | Minimum cell height.                                              |
+
+### React
+
+The React wrappers map the events to `onSgdsSort`, `onSgdsFilter`, `onSgdsPageChange` and `onSgdsSelectionChange`.
+Pass `columns`, `rows`, `sort` and `selectedKeys` as props.
+Prefer the `columns` prop in React. React reserves the `key` prop, so it does not reach `SgdsDataTableColumn`.
+
+```jsx
+import { useState } from "react";
+import { SgdsDataTable } from "@govtechsg/sgds-web-component/react";
+
+const columns = [
+  { key: "name", header: "Name", sortable: true },
+  { key: "department", header: "Department", sortable: true, filterable: true },
+  { key: "age", header: "Age", sortable: true, align: "right" }
+];
+
+const rows = [
+  { id: 1, name: "Amy Tan", department: "Finance", age: 28 },
+  { id: 2, name: "Ben Lim", department: "Engineering", age: 35 }
+];
+
+export function StaffTable() {
+  const [selectedKeys, setSelectedKeys] = useState([]);
+  return (
+    <SgdsDataTable
+      label="Staff directory"
+      columns={columns}
+      rows={rows}
+      multiSelect
+      multiSort
+      selectedKeys={selectedKeys}
+      onSgdsSort={e => console.log(e.detail.sort)}
+      onSgdsFilter={e => console.log(e.detail.filteredCount)}
+      onSgdsPageChange={e => console.log(e.detail.currentPage)}
+      onSgdsSelectionChange={e => setSelectedKeys(e.detail.selectedKeys)}
+    />
+  );
+}
+```
