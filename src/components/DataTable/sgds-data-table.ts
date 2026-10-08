@@ -1,7 +1,11 @@
 import { css, html, nothing } from "lit";
 import { property, state } from "lit/decorators.js";
+import { classMap } from "lit/directives/class-map.js";
+import { live } from "lit/directives/live.js";
+import { styleMap } from "lit/directives/style-map.js";
 import SgdsElement from "../../base/sgds-element";
 import tableStyle from "./data-table.css";
+import gridStyle from "./data-grid.css";
 import SgdsPagination from "../Pagination/sgds-pagination";
 import type { ISgdsPaginationPageChangeEventDetail } from "../Pagination/sgds-pagination";
 import SgdsDataTableRow from "./sgds-data-table-row";
@@ -52,7 +56,35 @@ export type {
  * - **Slotted mode** — compose `sgds-data-table-row` / `sgds-data-table-head` / `sgds-data-table-cell` children.
  *
  * @slot default - Slotted mode: one or more `sgds-data-table-row` elements. Data mode: optional `sgds-data-table-column` elements.
- * @slot no-data - Custom content rendered when no body rows are available and `loading` is false.
+ * @slot no-data - Custom content rendered when no body rows are available and `loading` is false. Used in both slotted and data mode. Defaults to "No data".
+ *
+ * @csspart base - Data mode: the outer container of the table, toolbar and footer.
+ * @csspart toolbar - Data mode: the toolbar above the table that holds the global filter. Rendered when `showGlobalFilter` is true.
+ * @csspart global-filter - Data mode: the `sgds-input` search box bound to `globalFilter`.
+ * @csspart table-container - Data mode: the scroll container around the table.
+ * @csspart table - Data mode: the `<table role="grid">` element.
+ * @csspart header-row - Data mode: the column header `<tr>`.
+ * @csspart header-cell - Data mode: each `<th>` in the header and filter rows.
+ * @csspart sort-indicator - Data mode: the sort icon inside a sortable header.
+ * @csspart filter-row - Data mode: the second header `<tr>` that holds the per-column filter inputs.
+ * @csspart filter-input - Data mode: each per-column filter `sgds-input`.
+ * @csspart row - Data mode: each body `<tr>`.
+ * @csspart cell - Data mode: each body `<td>`.
+ * @csspart checkbox-cell - Data mode: the header and body cells of the selection checkbox column.
+ * @csspart empty - Data mode: the full-width row shown when there are no rows.
+ * @csspart loading - Data mode: each skeleton row shown while `loading` is true.
+ * @csspart footer - Data mode: the footer that holds the pagination summary and pagination.
+ * @csspart pagination-summary - Data mode: the summary text in the footer.
+ * @csspart pagination - Data mode: the `sgds-pagination` element in the footer.
+ *
+ * @cssproperty --sgds-data-table-max-height - Data mode: maximum height of the scroll container. Pair with `stickyHeader`. Defaults to `none`.
+ * @cssproperty --sgds-data-table-header-bg - Data mode: background of header cells. Defaults to `var(--sgds-surface-default)`.
+ * @cssproperty --sgds-data-table-border-color - Data mode: colour of the table and cell borders. Defaults to `var(--sgds-border-color-muted)`.
+ * @cssproperty --sgds-data-table-row-hover-bg - Data mode: background of a hovered body row. Defaults to `var(--sgds-bg-translucent-subtle)`.
+ * @cssproperty --sgds-data-table-row-selected-bg - Data mode: background of a selected body row. Defaults to `var(--sgds-primary-surface-translucent)`.
+ * @cssproperty --sgds-data-table-cell-padding-block - Data mode: vertical cell padding. Defaults to `var(--sgds-padding-sm)`, or `var(--sgds-padding-2-xs)` when `density="dense"`.
+ * @cssproperty --sgds-data-table-cell-padding-inline - Data mode: horizontal cell padding. Defaults to `var(--sgds-padding-md)`, or `var(--sgds-padding-sm)` when `density="dense"`.
+ * @cssproperty --sgds-data-table-cell-min-height - Data mode: minimum cell height. Defaults to `var(--sgds-dimension-56)`, or `var(--sgds-dimension-40)` when `density="dense"`.
  *
  * @event sgds-sort - Data mode: emitted whenever the sort state changes. Slotted mode: emitted when `serverSort` is true and a sorting column header is clicked.
  * @eventDetail {ISgdsDataTableSortEventDetail} sgds-sort
@@ -68,6 +100,7 @@ export class SgdsDataTable extends SgdsElement {
   static styles = [
     ...SgdsElement.styles,
     tableStyle,
+    gridStyle,
     css`
       :host {
         display: block;
@@ -666,36 +699,276 @@ export class SgdsDataTable extends SgdsElement {
 
   /** @internal */
   protected _renderGrid() {
-    // TODO(render): full template — see ADR data-table-data-mode.md
     const columns = this._effectiveColumns;
+    const { pageRows, totalCount } = this._view;
+    const hasFilterRow = columns.some(column => column.filterable);
+    const headerRowCount = hasFilterRow ? 2 : 1;
+    const colOffset = this.multiSelect ? 1 : 0;
+    const colCount = columns.length + colOffset;
+    const pageOffset = this.itemsPerPage > 0 ? (this.currentPage - 1) * this.itemsPerPage : 0;
+    const showFooter = this.mode === "server" || totalCount > this.itemsPerPage;
+
     return html`
-      <div class="data-table" part="base">
+      <div class="data-table data-grid" part="base">
         <slot hidden @slotchange=${this._handleSlotChange}></slot>
+        ${this.showGlobalFilter
+          ? html`<div class="toolbar" part="toolbar">
+              <sgds-input
+                part="global-filter"
+                type="search"
+                label="Search"
+                placeholder="Search"
+                autocomplete="off"
+                .value=${live(this.globalFilter)}
+                @sgds-input=${(e: Event) => this._onGlobalFilterInput((e.target as SgdsInput).value)}
+              ></sgds-input>
+            </div>`
+          : nothing}
         <div class="table-container" part="table-container">
-          <table role="grid" aria-label=${this.label || nothing} part="table">
+          <table
+            class="grid"
+            role="grid"
+            part="table"
+            aria-label=${this.label || nothing}
+            aria-rowcount=${totalCount + headerRowCount}
+            aria-colcount=${colCount}
+            aria-multiselectable=${this.multiSelect ? "true" : nothing}
+            aria-busy=${this.loading ? "true" : nothing}
+            @keydown=${this._keyboard.handleKeydown}
+          >
             <thead>
-              <tr part="header-row">
-                ${columns.map(column => html`<th scope="col" part="header-cell">${column.header}</th>`)}
-              </tr>
+              ${this._renderHeaderRow(columns, colOffset)}
+              ${hasFilterRow ? this._renderFilterRow(columns, colOffset) : nothing}
             </thead>
             <tbody>
-              ${this._view.pageRows.map(
-                (row, rowIndex) => html`<tr part="row">
-                  ${columns.map(
-                    column =>
-                      html`<td part="cell">
-                        ${column.render
-                          ? column.render(getCellValue(row, column), row, rowIndex)
-                          : String(getCellValue(row, column) ?? "")}
-                      </td>`
+              ${this.loading
+                ? this._renderGridLoading(colCount)
+                : pageRows.length === 0
+                ? this._renderGridEmpty(colCount)
+                : pageRows.map((row, index) =>
+                    this._renderBodyRow(
+                      row,
+                      index,
+                      columns,
+                      headerRowCount + index,
+                      pageOffset + index + 1,
+                      headerRowCount
+                    )
                   )}
-                </tr>`
-              )}
             </tbody>
           </table>
         </div>
+        <div class="visually-hidden" role="status" aria-live="polite">
+          ${this.loading ? "" : `${totalCount} results`}
+        </div>
+        ${showFooter ? this._renderGridFooter(totalCount, pageOffset, pageRows.length) : nothing}
       </div>
     `;
+  }
+
+  private _renderHeaderRow(columns: SgdsDataTableColumnDefinition[], colOffset: number) {
+    const selectAll = this.multiSelect ? this._selectAllState() : "none";
+    return html`<tr part="header-row" aria-rowindex="1">
+      ${this.multiSelect
+        ? html`<th
+            scope="col"
+            part="header-cell checkbox-cell"
+            class="checkbox-cell"
+            data-row="0"
+            data-col="0"
+            data-activate
+            tabindex=${this._keyboard.tabIndexFor(0, 0)}
+            @click=${() => this._toggleSelectAll()}
+          >
+            <sgds-checkbox
+              tabindex="-1"
+              .ariaLabel=${"Select all rows"}
+              .checked=${live(selectAll === "all")}
+              .indeterminate=${live(selectAll === "some")}
+            ></sgds-checkbox>
+          </th>`
+        : nothing}
+      ${columns.map((column, index) => this._renderHeaderCell(column, index + colOffset))}
+    </tr>`;
+  }
+
+  private _renderHeaderCell(column: SgdsDataTableColumnDefinition, col: number) {
+    const sortIndex = this.sort.findIndex(spec => spec.key === column.key);
+    const direction = sortIndex >= 0 ? this.sort[sortIndex].direction : undefined;
+    const ariaSort = sortIndex === 0 && direction ? direction : nothing;
+    const icon =
+      direction === "ascending" ? "arrow-up" : direction === "descending" ? "arrow-down" : "chevron-selector-vertical";
+
+    return html`<th
+      scope="col"
+      part="header-cell"
+      class=${classMap({ "align-right": column.align === "right" })}
+      style=${styleMap({ width: column.width })}
+      data-row="0"
+      data-col=${col}
+      aria-sort=${column.sortable ? ariaSort : nothing}
+      tabindex=${this._keyboard.tabIndexFor(0, col)}
+    >
+      ${column.sortable
+        ? html`<button
+            type="button"
+            class="header-activator"
+            tabindex="-1"
+            data-activate
+            @click=${(e: MouseEvent) => this._onHeaderActivate(column.key, e.shiftKey)}
+          >
+            <span>${column.header}</span>
+            ${sortIndex > 0 && direction
+              ? html`<span class="visually-hidden">sorted ${direction}, priority ${sortIndex + 1}</span>`
+              : nothing}
+            <sgds-icon
+              part="sort-indicator"
+              class=${classMap({ "sort-indicator": true, sorted: !!direction })}
+              name=${icon}
+              size="sm"
+              aria-hidden="true"
+            ></sgds-icon>
+          </button>`
+        : column.header}
+    </th>`;
+  }
+
+  private _renderFilterRow(columns: SgdsDataTableColumnDefinition[], colOffset: number) {
+    return html`<tr part="filter-row" class="filter-row" aria-rowindex="2">
+      ${this.multiSelect
+        ? html`<th part="header-cell" data-row="1" data-col="0" tabindex=${this._keyboard.tabIndexFor(1, 0)}>
+            <span class="visually-hidden">No filter</span>
+          </th>`
+        : nothing}
+      ${columns.map((column, index) => {
+        const col = index + colOffset;
+        if (!column.filterable) {
+          return html`<th
+            part="header-cell"
+            data-row="1"
+            data-col=${col}
+            tabindex=${this._keyboard.tabIndexFor(1, col)}
+          >
+            <span class="visually-hidden">No filter</span>
+          </th>`;
+        }
+        const label = `Filter ${column.header}`;
+        return html`<th part="header-cell" data-row="1" data-col=${col} tabindex="-1">
+          <sgds-input
+            part="filter-input"
+            data-cell-focus
+            type="text"
+            aria-label=${label}
+            placeholder=${label}
+            autocomplete="off"
+            tabindex=${this._keyboard.tabIndexFor(1, col) === 0 ? nothing : "-1"}
+            .value=${live(this.columnFilters[column.key] ?? "")}
+            @sgds-input=${(e: Event) => this._onColumnFilterInput(column.key, (e.target as SgdsInput).value)}
+          ></sgds-input>
+        </th>`;
+      })}
+    </tr>`;
+  }
+
+  private _renderBodyRow(
+    row: SgdsDataTableRowData,
+    index: number,
+    columns: SgdsDataTableColumnDefinition[],
+    gridRow: number,
+    rowNumber: number,
+    headerRowCount: number
+  ) {
+    const key = this._rowKeyOf(row);
+    const selected = this.multiSelect && this.selectedKeys.includes(key);
+    const colOffset = this.multiSelect ? 1 : 0;
+    return html`<tr
+      part="row"
+      aria-rowindex=${headerRowCount + rowNumber}
+      aria-selected=${this.multiSelect ? (selected ? "true" : "false") : nothing}
+    >
+      ${this.multiSelect
+        ? html`<td
+            role="gridcell"
+            part="cell checkbox-cell"
+            class="checkbox-cell"
+            data-row=${gridRow}
+            data-col="0"
+            data-activate
+            tabindex=${this._keyboard.tabIndexFor(gridRow, 0)}
+            @click=${() => this._toggleRowSelection(key)}
+          >
+            <sgds-checkbox
+              tabindex="-1"
+              .ariaLabel=${`Select row ${rowNumber}`}
+              .checked=${live(selected)}
+            ></sgds-checkbox>
+          </td>`
+        : nothing}
+      ${columns.map((column, colIndex) => {
+        const value = getCellValue(row, column);
+        return html`<td
+          role="gridcell"
+          part="cell"
+          class=${classMap({ "align-right": column.align === "right" })}
+          style=${styleMap({ width: column.width })}
+          data-row=${gridRow}
+          data-col=${colIndex + colOffset}
+          tabindex=${this._keyboard.tabIndexFor(gridRow, colIndex + colOffset)}
+        >
+          ${column.render ? column.render(value, row, index) : String(value ?? "")}
+        </td>`;
+      })}
+    </tr>`;
+  }
+
+  private _renderGridEmpty(colCount: number) {
+    return html`<tr part="empty">
+      <td role="gridcell" class="empty-cell" colspan=${colCount}>
+        <slot name="no-data">No data</slot>
+      </td>
+    </tr>`;
+  }
+
+  private _renderGridLoading(colCount: number) {
+    const skeletonRows = Math.max(1, this.itemsPerPage || 1);
+    return Array.from(
+      { length: skeletonRows },
+      () => html`<tr part="loading" aria-hidden="true">
+        ${Array.from(
+          { length: colCount },
+          (_, col) => html`<td class=${classMap({ "checkbox-cell": this.multiSelect && col === 0 })}>
+            ${this.multiSelect && col === 0
+              ? html`<sgds-skeleton .height=${"24px"} .width=${"24px"} .borderRadius=${"4px"}></sgds-skeleton>`
+              : html`<sgds-skeleton .height=${"20px"} .borderRadius=${"4px"}></sgds-skeleton>`}
+          </td>`
+        )}
+      </tr>`
+    );
+  }
+
+  private _renderGridFooter(totalCount: number, pageOffset: number, pageRowCount: number) {
+    const start = this.mode === "server" ? pageOffset : Math.min(pageOffset, totalCount);
+    const end = Math.min(start + pageRowCount, totalCount);
+    const displayStart = totalCount === 0 || pageRowCount === 0 ? 0 : start + 1;
+    return html`<div class="footer" part="footer">
+      <span part="pagination-summary">
+        ${this.loading
+          ? nothing
+          : this.paginationSummary || `Showing ${displayStart} to ${end} of ${totalCount} results`}
+      </span>
+      <sgds-pagination
+        part="pagination"
+        .dataLength=${totalCount}
+        .currentPage=${this.currentPage}
+        .itemsPerPage=${this.itemsPerPage}
+        .variant=${this.paginationVariant}
+        size="sm"
+        @sgds-page-change=${(e: CustomEvent<ISgdsPaginationPageChangeEventDetail>) => {
+          e.stopPropagation();
+          this._goToPage(e.detail.currentPage);
+        }}
+      ></sgds-pagination>
+    </div>`;
   }
 
   updated(changed: Map<string, unknown>) {
