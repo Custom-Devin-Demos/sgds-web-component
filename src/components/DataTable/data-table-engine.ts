@@ -1,6 +1,11 @@
+/**
+ * Pure, DOM-free data pipeline for `sgds-data-table` data mode:
+ * filter -> sort -> paginate. Every function returns new arrays and never mutates its inputs.
+ */
 import type {
   SgdsDataTableColumnDefinition,
   SgdsDataTableRowData,
+  SgdsDataTableSortDirection,
   SgdsDataTableSortSpec,
   SgdsDataTableView
 } from "./types";
@@ -21,12 +26,32 @@ export interface ComputeViewOptions<T extends SgdsDataTableRowData> {
   dataLength: number;
 }
 
-/** Default ascending comparator: numbers numerically, everything else with numeric-aware `localeCompare`. Nullish sorts last. */
-export function compareValues(left: unknown, right: unknown): number {
-  // TODO(engine): implement — see ADR data-table-data-mode.md
-  void left;
-  void right;
+/** `null`, `undefined`, `""`, `NaN` and invalid dates have no sortable value and always sort last. */
+function isEmptyValue(value: unknown): boolean {
+  if (value === null || value === undefined || value === "") return true;
+  if (typeof value === "number") return Number.isNaN(value);
+  if (value instanceof Date) return Number.isNaN(value.getTime());
+  return false;
+}
+
+function sign(value: number): number {
+  if (value > 0) return 1;
+  if (value < 0) return -1;
   return 0;
+}
+
+/**
+ * Default ascending comparator: numbers numerically, Dates by time, booleans false before true,
+ * everything else with numeric-aware, case-insensitive `localeCompare`. Empty values sort last.
+ */
+export function compareValues(left: unknown, right: unknown): number {
+  const leftEmpty = isEmptyValue(left);
+  const rightEmpty = isEmptyValue(right);
+  if (leftEmpty || rightEmpty) return leftEmpty === rightEmpty ? 0 : leftEmpty ? 1 : -1;
+  if (typeof left === "number" && typeof right === "number") return sign(left - right);
+  if (left instanceof Date && right instanceof Date) return sign(left.getTime() - right.getTime());
+  if (typeof left === "boolean" && typeof right === "boolean") return Number(left) - Number(right);
+  return sign(String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" }));
 }
 
 export function computeView<T extends SgdsDataTableRowData>(options: ComputeViewOptions<T>): SgdsDataTableView<T> {
@@ -41,24 +66,46 @@ export function computeView<T extends SgdsDataTableRowData>(options: ComputeView
   return { processedRows, pageRows, totalCount };
 }
 
-/** Applies the global filter (any column, case-insensitive substring) and per-column filters (AND). */
+function matchesQuery<T extends SgdsDataTableRowData>(
+  row: T,
+  column: SgdsDataTableColumnDefinition<T>,
+  query: string
+): boolean {
+  const value = getCellValue(row, column);
+  if (column.filterFn) return column.filterFn(value, query, row);
+  return String(value ?? "")
+    .toLowerCase()
+    .includes(query.toLowerCase());
+}
+
+/**
+ * Applies the global filter (matches when ANY column matches) and per-column filters (ALL must match).
+ * Queries are trimmed; the default match is a case-insensitive substring of `String(value)`.
+ * `column.filterFn(value, trimmedQuery, row)` replaces the default match. Unknown column keys are ignored.
+ */
 export function filterRows<T extends SgdsDataTableRowData>(
   rows: T[],
   columns: SgdsDataTableColumnDefinition<T>[],
   globalFilter: string,
   columnFilters: Record<string, string>
 ): T[] {
-  // TODO(engine): implement — see ADR data-table-data-mode.md
-  void columns;
-  void globalFilter;
-  void columnFilters;
-  return [...rows];
+  const globalQuery = (globalFilter ?? "").trim();
+  const columnQueries = Object.entries(columnFilters ?? {}).reduce<
+    { column: SgdsDataTableColumnDefinition<T>; query: string }[]
+  >((acc, [key, value]) => {
+    const query = String(value ?? "").trim();
+    const column = columns.find(c => c.key === key);
+    if (query && column) acc.push({ column, query });
+    return acc;
+  }, []);
+  if (!globalQuery && columnQueries.length === 0) return [...rows];
+
+  return rows.filter(row => {
+    if (globalQuery && !columns.some(column => matchesQuery(row, column, globalQuery))) return false;
+    return columnQueries.every(({ column, query }) => matchesQuery(row, column, query));
+  });
 }
 
-/**
- * Pure, DOM-free data pipeline for `sgds-data-table` data mode:
- * filter -> sort -> paginate. Every function returns new arrays and never mutates its inputs.
- */
 /** Raw value of `row` for `column`: `column.accessor(row)` when provided, else `row[column.key]`. */
 export function getCellValue<T extends SgdsDataTableRowData>(
   row: T,
@@ -79,30 +126,63 @@ export function nextSortState(
   multiSort: boolean,
   additive: boolean
 ): SgdsDataTableSortSpec[] {
-  // TODO(engine): implement — see ADR data-table-data-mode.md
-  void multiSort;
-  void additive;
-  const current = sort.find(s => s.key === key);
-  if (!current) return [{ key, direction: "ascending" }];
-  if (current.direction === "ascending") return [{ key, direction: "descending" }];
-  return [];
+  const index = sort.findIndex(spec => spec.key === key);
+  const current = index >= 0 ? sort[index].direction : "none";
+  const next: SgdsDataTableSortDirection | "none" =
+    current === "none" ? "ascending" : current === "ascending" ? "descending" : "none";
+
+  if (!multiSort || !additive) return next === "none" ? [] : [{ key, direction: next }];
+  if (index < 0) return [...sort.map(spec => ({ ...spec })), { key, direction: next as SgdsDataTableSortDirection }];
+  if (next === "none") return sort.filter((_, i) => i !== index).map(spec => ({ ...spec }));
+  return sort.map((spec, i) => (i === index ? { key, direction: next } : { ...spec }));
 }
 
-/** Returns the slice for a 1-based `currentPage`. */
+/** Returns the slice for a 1-based `currentPage`. A non-positive or non-finite `itemsPerPage` returns every row. */
 export function paginateRows<T>(rows: T[], currentPage: number, itemsPerPage: number): T[] {
-  if (itemsPerPage <= 0) return [...rows];
-  const start = (Math.max(1, currentPage) - 1) * itemsPerPage;
-  return rows.slice(start, start + itemsPerPage);
+  if (!Number.isFinite(itemsPerPage) || itemsPerPage <= 0) return [...rows];
+  const size = Math.floor(itemsPerPage) || 1;
+  const page = Number.isFinite(currentPage) ? Math.max(1, Math.floor(currentPage)) : 1;
+  const start = (page - 1) * size;
+  return rows.slice(start, start + size);
 }
 
-/** Stable multi-column sort. `sort[0]` is the primary key; ties fall through to later entries, then original order. */
+/**
+ * Stable multi-column sort. `sort[0]` is the primary key; ties fall through to later entries, then original order.
+ * Uses `column.sortFn` (negated for descending) when provided. Rows whose cell value is empty (`null`, `undefined`,
+ * `""`) sort after rows with a value in both directions; `sortFn` still orders rows that are both empty.
+ * Sort entries for unknown columns are ignored.
+ */
 export function sortRows<T extends SgdsDataTableRowData>(
   rows: T[],
   columns: SgdsDataTableColumnDefinition<T>[],
   sort: SgdsDataTableSortSpec[]
 ): T[] {
-  // TODO(engine): implement — see ADR data-table-data-mode.md
-  void columns;
-  void sort;
-  return [...rows];
+  const comparators = (sort ?? []).reduce<((a: T, b: T) => number)[]>((acc, spec) => {
+    const column = columns.find(c => c.key === spec.key);
+    if (!column) return acc;
+    const factor = spec.direction === "descending" ? -1 : 1;
+    const sortFn = column.sortFn;
+    acc.push((a, b) => {
+      const left = getCellValue(a, column);
+      const right = getCellValue(b, column);
+      const leftEmpty = isEmptyValue(left);
+      const rightEmpty = isEmptyValue(right);
+      if (leftEmpty !== rightEmpty) return leftEmpty ? 1 : -1;
+      if (sortFn) return factor * sign(sortFn(a, b));
+      return leftEmpty ? 0 : factor * compareValues(left, right);
+    });
+    return acc;
+  }, []);
+  if (comparators.length === 0) return [...rows];
+
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => {
+      for (const compare of comparators) {
+        const result = compare(a.row, b.row);
+        if (result !== 0) return result;
+      }
+      return a.index - b.index;
+    })
+    .map(entry => entry.row);
 }

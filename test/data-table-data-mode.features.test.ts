@@ -476,8 +476,8 @@ describe("<sgds-data-table> data mode: selection", () => {
     const el = await render();
     await settle(el);
     expect(getGrid(el).getAttribute("aria-multiselectable")).to.equal("true");
-    expect(checkboxIn(getCell(el, 0, 0)).getAttribute("aria-label")).to.equal("Select all rows");
-    expect(checkboxIn(getCell(el, 1, 0)).getAttribute("aria-label")).to.equal("Select row 1");
+    expect(checkboxIn(getCell(el, 0, 0)).ariaLabel).to.equal("Select all rows");
+    expect(checkboxIn(getCell(el, 1, 0)).ariaLabel).to.equal("Select row 1");
     expect(checkboxIn(getCell(el, 0, 0)).getAttribute("tabindex")).to.equal("-1");
     expect(checkboxIn(getCell(el, 1, 0)).getAttribute("tabindex")).to.equal("-1");
   });
@@ -715,7 +715,8 @@ describe("<sgds-data-table> data mode: keyboard", () => {
     const filterCell = getCell(el, 1, 0);
     expect(el.shadowRoot?.activeElement).to.equal(focusTargetOf(filterCell));
     expect(focusTargetOf(filterCell).tagName).to.equal("SGDS-INPUT");
-    expect(focusTargetOf(filterCell).getAttribute("tabindex")).to.equal("0");
+    // The active input omits tabindex so only its inner <input> is a tab stop
+    expect(focusTargetOf(filterCell).getAttribute("tabindex")).to.not.equal("-1");
     expect(filterCell.getAttribute("tabindex")).to.not.equal("0");
   });
 

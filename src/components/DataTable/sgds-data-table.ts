@@ -16,7 +16,7 @@ import SgdsDataTableColumn from "./sgds-data-table-column";
 import { SgdsCheckbox } from "../Checkbox/sgds-checkbox";
 import { SgdsInput } from "../Input/sgds-input";
 import { SgdsIcon } from "../Icon/sgds-icon";
-import { computeView, getCellValue } from "./data-table-engine";
+import { computeView, filterRows, getCellValue, nextSortState } from "./data-table-engine";
 import { DataTableKeyboardController } from "./data-table-keyboard";
 import type {
   ISgdsDataTableFilterEventDetail,
@@ -221,7 +221,8 @@ export class SgdsDataTable extends SgdsElement {
   /** @internal */
   protected _keyboard = new DataTableKeyboardController(
     this,
-    () => this.shadowRoot?.querySelector<HTMLElement>("[role='grid']") ?? null
+    () => this.shadowRoot?.querySelector<HTMLElement>("[role='grid']") ?? null,
+    { onPageStep: delta => this._goToPage(this.currentPage + delta) }
   );
 
   @state() private tableRows: SgdsDataTableRow[] = [];
@@ -647,52 +648,94 @@ export class SgdsDataTable extends SgdsElement {
 
   /** @internal Header activated by click, Enter or Space. `additive` is true when Shift is held. */
   protected _onHeaderActivate(key: string, additive: boolean) {
-    // TODO(logic): nextSortState + emit sgds-sort — see ADR data-table-data-mode.md
-    void key;
-    void additive;
+    const column = this._effectiveColumns.find(c => c.key === key);
+    if (!column?.sortable) return;
+    const sort = nextSortState(this.sort, key, this.multiSort, additive);
+    this.sort = sort;
+    const direction = sort.find(spec => spec.key === key)?.direction ?? "none";
+    this.emit<ISgdsDataTableSortEventDetail>("sgds-sort", { detail: { key, direction, sort } });
   }
 
   /** @internal */
   protected _onGlobalFilterInput(value: string) {
-    // TODO(logic): update globalFilter, reset currentPage to 1, emit sgds-filter
-    void value;
+    this.globalFilter = value;
+    this.currentPage = 1;
+    this._emitFilter();
   }
 
   /** @internal */
   protected _onColumnFilterInput(key: string, value: string) {
-    // TODO(logic): update columnFilters immutably, reset currentPage to 1, emit sgds-filter
-    void key;
-    void value;
+    const columnFilters = { ...this.columnFilters };
+    if (value) columnFilters[key] = value;
+    else delete columnFilters[key];
+    this.columnFilters = columnFilters;
+    this.currentPage = 1;
+    this._emitFilter();
+  }
+
+  private _emitFilter() {
+    const filteredCount = this.serverFilter
+      ? this.dataLength || this.rows.length
+      : filterRows(this.rows, this._effectiveColumns, this.globalFilter, this.columnFilters).length;
+    this.emit<ISgdsDataTableFilterEventDetail>("sgds-filter", {
+      detail: { globalFilter: this.globalFilter, columnFilters: this.columnFilters, filteredCount }
+    });
   }
 
   /** @internal */
   protected _toggleRowSelection(key: SgdsDataTableRowKey) {
-    // TODO(logic): toggle key in selectedKeys immutably, emit sgds-selection-change
-    void key;
+    this.selectedKeys = this.selectedKeys.includes(key)
+      ? this.selectedKeys.filter(selected => selected !== key)
+      : [...this.selectedKeys, key];
+    this._emitSelectionChange();
   }
 
   /** @internal Header checkbox: selects all rows on the current page, or clears them when all are selected. */
   protected _toggleSelectAll() {
-    // TODO(logic): see ADR data-table-data-mode.md
+    const pageKeys = this._view.pageRows.map(row => this._rowKeyOf(row));
+    if (pageKeys.length === 0) return;
+    if (this._selectAllState() === "all") {
+      const pageKeySet = new Set(pageKeys);
+      this.selectedKeys = this.selectedKeys.filter(key => !pageKeySet.has(key));
+    } else {
+      const selected = new Set(this.selectedKeys);
+      this.selectedKeys = [...this.selectedKeys, ...pageKeys.filter(key => !selected.has(key))];
+    }
+    this._emitSelectionChange();
   }
 
   /** @internal Header checkbox state for the current page. */
   protected _selectAllState(): "all" | "some" | "none" {
-    // TODO(logic)
-    return "none";
+    const pageKeys = this._view.pageRows.map(row => this._rowKeyOf(row));
+    if (pageKeys.length === 0) return "none";
+    const selected = new Set(this.selectedKeys);
+    const count = pageKeys.filter(key => selected.has(key)).length;
+    if (count === 0) return "none";
+    return count === pageKeys.length ? "all" : "some";
   }
 
-  /** @internal */
+  private _emitSelectionChange() {
+    this.emit<ISgdsDataTableSelectionChangeEventDetail>("sgds-selection-change", {
+      detail: { selectedKeys: this.selectedKeys, selectedRows: this.selectedRows }
+    });
+  }
+
+  /** @internal Clamps `page` to `[1, lastPage]`; emits `sgds-page-change` only when the page actually changes. */
   protected _goToPage(page: number) {
-    this.currentPage = page;
+    const total = this.isDataMode ? this._view.totalCount : this.dataLength || this.tableRows.length;
+    const lastPage = this.itemsPerPage > 0 ? Math.max(1, Math.ceil(total / this.itemsPerPage)) : 1;
+    const target = Number.isFinite(page) ? Math.min(Math.max(1, Math.trunc(page)), lastPage) : 1;
+    if (target === this.currentPage) return;
+    this.currentPage = target;
     this.emit<ISgdsDataTablePageChangeEventDetail>("sgds-page-change", {
-      detail: { currentPage: page, itemsPerPage: this.itemsPerPage }
+      detail: { currentPage: target, itemsPerPage: this.itemsPerPage }
     });
   }
 
   /** Data mode: clears the selection and emits `sgds-selection-change`. */
   public clearSelection() {
-    // TODO(logic)
+    this.selectedKeys = [];
+    this._emitSelectionChange();
   }
 
   /* ── Data mode: rendering (owned by render/styles work) ─────────── */
