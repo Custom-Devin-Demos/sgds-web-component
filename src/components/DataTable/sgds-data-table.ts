@@ -8,19 +8,61 @@ import SgdsDataTableRow from "./sgds-data-table-row";
 import SgdsDataTableCell from "./sgds-data-table-cell";
 import SgdsDataTableHead from "./sgds-data-table-head";
 import SgdsSkeleton from "../Skeleton/sgds-skeleton";
-import type { ISgdsDataTableRowSelectEventDetail, ISgdsDataTableSortEventDetail } from "./types";
-export type { ISgdsDataTableRowSelectEventDetail, ISgdsDataTableSortEventDetail };
+import SgdsDataTableColumn from "./sgds-data-table-column";
+import { SgdsCheckbox } from "../Checkbox/sgds-checkbox";
+import { SgdsInput } from "../Input/sgds-input";
+import { SgdsIcon } from "../Icon/sgds-icon";
+import { computeView, getCellValue } from "./data-table-engine";
+import { DataTableKeyboardController } from "./data-table-keyboard";
+import type {
+  ISgdsDataTableFilterEventDetail,
+  ISgdsDataTablePageChangeEventDetail,
+  ISgdsDataTableRowSelectEventDetail,
+  ISgdsDataTableSelectionChangeEventDetail,
+  ISgdsDataTableSortEventDetail,
+  SgdsDataTableColumnDefinition,
+  SgdsDataTableDensity,
+  SgdsDataTableRowData,
+  SgdsDataTableRowKey,
+  SgdsDataTableSortDirection,
+  SgdsDataTableSortSpec,
+  SgdsDataTableView
+} from "./types";
+export type {
+  ISgdsDataTableFilterEventDetail,
+  ISgdsDataTablePageChangeEventDetail,
+  ISgdsDataTableRowSelectEventDetail,
+  ISgdsDataTableSelectionChangeEventDetail,
+  ISgdsDataTableSortEventDetail,
+  SgdsDataTableColumnDefinition,
+  SgdsDataTableDensity,
+  SgdsDataTableRowData,
+  SgdsDataTableRowKey,
+  SgdsDataTableSortDirection,
+  SgdsDataTableSortSpec,
+  SgdsDataTableView
+};
 
 /**
- * @summary A data table container with pagination, row selection, loading, and sorting support.
+ * @summary A data table with sorting, filtering, pagination, row selection, loading and empty states.
  *
- * @slot default - Insert one or more `sgds-data-table-row` elements.
+ * Two authoring modes are supported:
+ * - **Data mode** — set `columns` (or add `sgds-data-table-column` children) and `rows`. The table renders an
+ *   ARIA grid with keyboard navigation, multi-column sorting, global and per-column filtering, density and sticky header.
+ * - **Slotted mode** — compose `sgds-data-table-row` / `sgds-data-table-head` / `sgds-data-table-cell` children.
+ *
+ * @slot default - Slotted mode: one or more `sgds-data-table-row` elements. Data mode: optional `sgds-data-table-column` elements.
  * @slot no-data - Custom content rendered when no body rows are available and `loading` is false.
  *
- * @event sgds-row-select - Emitted when row checkboxes change. Detail: `{ selected: Record<string, string>[] }`.
- * @event sgds-sort - Emitted when `serverSort` is true and a sorting column header is clicked.
- * Detail: `{ key: string; direction: "ascending" | "descending" | "none" }`.
+ * @event sgds-sort - Data mode: emitted whenever the sort state changes. Slotted mode: emitted when `serverSort` is true and a sorting column header is clicked.
+ * @eventDetail {ISgdsDataTableSortEventDetail} sgds-sort
+ * @event sgds-filter - Data mode: emitted when the global or a per-column filter changes.
+ * @eventDetail {ISgdsDataTableFilterEventDetail} sgds-filter
  * @event sgds-page-change - Emitted when pagination changes page.
+ * @eventDetail {ISgdsDataTablePageChangeEventDetail} sgds-page-change
+ * @event sgds-selection-change - Emitted when row selection changes.
+ * @eventDetail {ISgdsDataTableSelectionChangeEventDetail} sgds-selection-change
+ * @event sgds-row-select - Deprecated, use `sgds-selection-change`. Slotted mode only. Detail: `{ selected: Record<string, string>[] }`.
  */
 export class SgdsDataTable extends SgdsElement {
   static styles = [
@@ -38,7 +80,11 @@ export class SgdsDataTable extends SgdsElement {
     "sgds-pagination": SgdsPagination,
     "sgds-data-table-cell": SgdsDataTableCell,
     "sgds-data-table-head": SgdsDataTableHead,
-    "sgds-skeleton": SgdsSkeleton
+    "sgds-skeleton": SgdsSkeleton,
+    "sgds-data-table-column": SgdsDataTableColumn,
+    "sgds-checkbox": SgdsCheckbox,
+    "sgds-input": SgdsInput,
+    "sgds-icon": SgdsIcon
   };
 
   /** If true, renders a checkbox column for row selection. */
@@ -80,6 +126,71 @@ export class SgdsDataTable extends SgdsElement {
    */
   @property({ type: String }) mode: "client" | "server" = "client";
 
+  /**
+   * Data mode: column definitions. Takes precedence over `sgds-data-table-column` children.
+   * @type {SgdsDataTableColumnDefinition[]}
+   */
+  @property({ attribute: false }) columns: SgdsDataTableColumnDefinition[] = [];
+
+  /**
+   * Data mode: row objects. In `mode="server"` pass only the current page and set `dataLength`.
+   * @type {SgdsDataTableRowData[]}
+   */
+  @property({ attribute: false }) rows: SgdsDataTableRowData[] = [];
+
+  /** Data mode: field on each row used as its stable identity for selection. */
+  @property({ type: String }) rowKey = "id";
+
+  /**
+   * Data mode: current sort state. Index 0 is the primary sort. Updated on header activation.
+   * @type {SgdsDataTableSortSpec[]}
+   */
+  @property({ attribute: false }) sort: SgdsDataTableSortSpec[] = [];
+
+  /** Data mode: allows sorting by more than one column (Shift + click, or Shift + Enter/Space on a header). */
+  @property({ type: Boolean, reflect: true }) multiSort = false;
+
+  /** Data mode: text matched against every column. */
+  @property({ type: String }) globalFilter = "";
+
+  /**
+   * Data mode: per-column filter text keyed by column `key`.
+   * @type {Record<string, string>}
+   */
+  @property({ attribute: false }) columnFilters: Record<string, string> = {};
+
+  /** Data mode: renders a search input above the table bound to `globalFilter`. */
+  @property({ type: Boolean, reflect: true }) showGlobalFilter = false;
+
+  /** Data mode: when true, filters are not applied locally; listen to `sgds-filter` and update `rows`. */
+  @property({ type: Boolean }) serverFilter = false;
+
+  /**
+   * Data mode: keys (`row[rowKey]`) of the selected rows. Requires `multiSelect`.
+   * @type {SgdsDataTableRowKey[]}
+   */
+  @property({ attribute: false }) selectedKeys: SgdsDataTableRowKey[] = [];
+
+  /** Row height and cell padding. */
+  @property({ type: String, reflect: true }) density: SgdsDataTableDensity = "comfortable";
+
+  /** Keeps the header row visible while the table body scrolls. Set `--sgds-data-table-max-height` to make the body scroll. */
+  @property({ type: Boolean, reflect: true }) stickyHeader = false;
+
+  /** Accessible name of the grid. Required in data mode when there is no visible heading labelling the table. */
+  @property({ type: String }) label = "";
+
+  @state() private _columnElements: SgdsDataTableColumn[] = [];
+
+  /** @internal Derived data-mode view model, recomputed in `willUpdate`. */
+  protected _view: SgdsDataTableView = { processedRows: [], pageRows: [], totalCount: 0 };
+
+  /** @internal */
+  protected _keyboard = new DataTableKeyboardController(
+    this,
+    () => this.shadowRoot?.querySelector<HTMLElement>("[role='grid']") ?? null
+  );
+
   @state() private tableRows: SgdsDataTableRow[] = [];
   @state() private headerRows: SgdsDataTableRow[] = [];
 
@@ -88,10 +199,6 @@ export class SgdsDataTable extends SgdsElement {
   private _hasCapturedInitialRowPositions = false;
 
   private _rowHandlers = new WeakMap<SgdsDataTableRow, EventListener>();
-
-  connectedCallback() {
-    super.connectedCallback();
-  }
 
   private _isRowChecked(row: SgdsDataTableRow) {
     return row.checked || row.checkbox?.checked === true;
@@ -122,6 +229,15 @@ export class SgdsDataTable extends SgdsElement {
   private _emitRowSelect() {
     const selected = this.tableRows.filter(r => this._isRowChecked(r)).map(r => this._getRowData(r));
     this.emit("sgds-row-select", { detail: { selected } });
+    this.emit<ISgdsDataTableSelectionChangeEventDetail>("sgds-selection-change", {
+      detail: {
+        selectedKeys: this.tableRows.reduce<number[]>((keys, r, index) => {
+          if (this._isRowChecked(r)) keys.push(index);
+          return keys;
+        }, []),
+        selectedRows: selected
+      }
+    });
   }
 
   private _attachRowListener(row: SgdsDataTableRow) {
@@ -319,9 +435,10 @@ export class SgdsDataTable extends SgdsElement {
   }
 
   private _handleSlotChange(e: Event) {
-    const slotted = (e.target as HTMLSlotElement)
-      .assignedElements({ flatten: true })
-      .filter(el => el instanceof SgdsDataTableRow) as SgdsDataTableRow[];
+    const assigned = (e.target as HTMLSlotElement).assignedElements({ flatten: true });
+    this._columnElements = assigned.filter(el => el instanceof SgdsDataTableColumn) as SgdsDataTableColumn[];
+
+    const slotted = assigned.filter(el => el instanceof SgdsDataTableRow) as SgdsDataTableRow[];
 
     const rowTableChildren = (row: SgdsDataTableRow) =>
       Array.from(row.children).filter(child => {
@@ -361,6 +478,7 @@ export class SgdsDataTable extends SgdsElement {
   }
 
   private _updateVisibleRows() {
+    if (this.isDataMode) return;
     if (this.loading) {
       this.tableRows.forEach(row => (row.style.display = "none"));
       return;
@@ -428,6 +546,158 @@ export class SgdsDataTable extends SgdsElement {
     );
   }
 
+  /* ── Data mode: shared ─────────────────────────────────────────── */
+
+  /** True when columns come from the `columns` property or `sgds-data-table-column` children. */
+  get isDataMode(): boolean {
+    return this.columns.length > 0 || this._columnElements.length > 0;
+  }
+
+  /** @internal Effective column definitions for data mode. */
+  protected get _effectiveColumns(): SgdsDataTableColumnDefinition[] {
+    return this.columns.length > 0 ? this.columns : this._columnElements.map(column => column.toColumn());
+  }
+
+  /** @internal Key of a row object. */
+  protected _rowKeyOf(row: SgdsDataTableRowData): SgdsDataTableRowKey {
+    return row[this.rowKey] as SgdsDataTableRowKey;
+  }
+
+  /** Data mode: row objects whose keys are in `selectedKeys`. */
+  get selectedRows(): SgdsDataTableRowData[] {
+    const keys = new Set(this.selectedKeys);
+    return this.rows.filter(row => keys.has(this._rowKeyOf(row)));
+  }
+
+  private _onColumnChange = () => this.requestUpdate();
+
+  connectedCallback() {
+    super.connectedCallback();
+    this.addEventListener("i-sgds-column-change", this._onColumnChange);
+  }
+
+  disconnectedCallback() {
+    this.removeEventListener("i-sgds-column-change", this._onColumnChange);
+    super.disconnectedCallback();
+  }
+
+  private _viewOptions() {
+    return {
+      rows: this.rows,
+      columns: this._effectiveColumns,
+      sort: this.sort,
+      globalFilter: this.globalFilter,
+      columnFilters: this.columnFilters,
+      currentPage: this.currentPage,
+      itemsPerPage: this.itemsPerPage,
+      serverPaginate: this.mode === "server",
+      serverSort: this.serverSort,
+      serverFilter: this.serverFilter,
+      dataLength: this.dataLength
+    };
+  }
+
+  protected willUpdate(changed: Map<PropertyKey, unknown>) {
+    super.willUpdate(changed);
+    if (!this.isDataMode) return;
+    this._view = computeView(this._viewOptions());
+    if (this.mode !== "server" && this.itemsPerPage > 0) {
+      const lastPage = Math.max(1, Math.ceil(this._view.totalCount / this.itemsPerPage));
+      if (this.currentPage > lastPage) {
+        this.currentPage = lastPage;
+        this._view = computeView({ ...this._viewOptions(), currentPage: lastPage });
+      }
+    }
+  }
+
+  /* ── Data mode: state transitions (owned by logic/keyboard work) ── */
+
+  /** @internal Header activated by click, Enter or Space. `additive` is true when Shift is held. */
+  protected _onHeaderActivate(key: string, additive: boolean) {
+    // TODO(logic): nextSortState + emit sgds-sort — see ADR data-table-data-mode.md
+    void key;
+    void additive;
+  }
+
+  /** @internal */
+  protected _onGlobalFilterInput(value: string) {
+    // TODO(logic): update globalFilter, reset currentPage to 1, emit sgds-filter
+    void value;
+  }
+
+  /** @internal */
+  protected _onColumnFilterInput(key: string, value: string) {
+    // TODO(logic): update columnFilters immutably, reset currentPage to 1, emit sgds-filter
+    void key;
+    void value;
+  }
+
+  /** @internal */
+  protected _toggleRowSelection(key: SgdsDataTableRowKey) {
+    // TODO(logic): toggle key in selectedKeys immutably, emit sgds-selection-change
+    void key;
+  }
+
+  /** @internal Header checkbox: selects all rows on the current page, or clears them when all are selected. */
+  protected _toggleSelectAll() {
+    // TODO(logic): see ADR data-table-data-mode.md
+  }
+
+  /** @internal Header checkbox state for the current page. */
+  protected _selectAllState(): "all" | "some" | "none" {
+    // TODO(logic)
+    return "none";
+  }
+
+  /** @internal */
+  protected _goToPage(page: number) {
+    this.currentPage = page;
+    this.emit<ISgdsDataTablePageChangeEventDetail>("sgds-page-change", {
+      detail: { currentPage: page, itemsPerPage: this.itemsPerPage }
+    });
+  }
+
+  /** Data mode: clears the selection and emits `sgds-selection-change`. */
+  public clearSelection() {
+    // TODO(logic)
+  }
+
+  /* ── Data mode: rendering (owned by render/styles work) ─────────── */
+
+  /** @internal */
+  protected _renderGrid() {
+    // TODO(render): full template — see ADR data-table-data-mode.md
+    const columns = this._effectiveColumns;
+    return html`
+      <div class="data-table" part="base">
+        <slot hidden @slotchange=${this._handleSlotChange}></slot>
+        <div class="table-container" part="table-container">
+          <table role="grid" aria-label=${this.label || nothing} part="table">
+            <thead>
+              <tr part="header-row">
+                ${columns.map(column => html`<th scope="col" part="header-cell">${column.header}</th>`)}
+              </tr>
+            </thead>
+            <tbody>
+              ${this._view.pageRows.map(
+                (row, rowIndex) => html`<tr part="row">
+                  ${columns.map(
+                    column =>
+                      html`<td part="cell">
+                        ${column.render
+                          ? column.render(getCellValue(row, column), row, rowIndex)
+                          : String(getCellValue(row, column) ?? "")}
+                      </td>`
+                  )}
+                </tr>`
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
   updated(changed: Map<string, unknown>) {
     if (changed.has("currentPage") || changed.has("itemsPerPage") || changed.has("mode") || changed.has("loading")) {
       this._updateVisibleRows();
@@ -442,6 +712,8 @@ export class SgdsDataTable extends SgdsElement {
   }
 
   render() {
+    if (this.isDataMode) return this._renderGrid();
+
     const total = this.dataLength || this.tableRows.length;
     const start = (this.currentPage - 1) * this.itemsPerPage;
     const end = Math.min(start + this.itemsPerPage, total);
@@ -473,8 +745,8 @@ export class SgdsDataTable extends SgdsElement {
                 .variant=${this.paginationVariant}
                 size="sm"
                 @sgds-page-change=${(e: CustomEvent<ISgdsPaginationPageChangeEventDetail>) => {
-                  this.currentPage = e.detail.currentPage;
-                  this.emit("sgds-page-change");
+                  e.stopPropagation();
+                  this._goToPage(e.detail.currentPage);
                 }}
               ></sgds-pagination>
             </div>`
