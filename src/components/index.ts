@@ -16,6 +16,7 @@ export * from "./ComboBox/sgds-combo-box";
 export * from "./ComboBox/sgds-combo-box-option";
 export * from "./DataTable/sgds-data-table";
 export * from "./DataTable/sgds-data-table-cell";
+export * from "./DataTable/sgds-data-table-column";
 export * from "./DataTable/sgds-data-table-head";
 export * from "./DataTable/sgds-data-table-row";
 export * from "./Datepicker/sgds-datepicker";

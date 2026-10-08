@@ -1,0 +1,159 @@
+/* ── sgds-data-table: data mode (grid) ────────────────────────── */
+:host {
+  --sgds-data-table-max-height: none;
+  --sgds-data-table-header-bg: var(--sgds-surface-default);
+  --sgds-data-table-border-color: var(--sgds-border-color-muted);
+  --sgds-data-table-row-hover-bg: var(--sgds-bg-translucent-subtle);
+  --sgds-data-table-row-selected-bg: var(--sgds-primary-surface-translucent);
+  --sgds-data-table-cell-padding-block: var(--sgds-padding-sm);
+  --sgds-data-table-cell-padding-inline: var(--sgds-padding-md);
+  --sgds-data-table-cell-min-height: var(--sgds-dimension-56);
+}
+
+:host([density="dense"]) {
+  --sgds-data-table-cell-padding-block: var(--sgds-padding-2-xs);
+  --sgds-data-table-cell-padding-inline: var(--sgds-padding-sm);
+  --sgds-data-table-cell-min-height: var(--sgds-dimension-40);
+}
+
+.data-grid {
+  border-color: var(--sgds-data-table-border-color);
+}
+
+.data-grid .toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sgds-gap-xs);
+  padding: var(--sgds-padding-sm) var(--sgds-padding-md);
+  border-bottom: var(--sgds-border-width-1) solid var(--sgds-data-table-border-color);
+}
+
+.data-grid .table-container {
+  overflow: auto;
+  max-height: var(--sgds-data-table-max-height, none);
+}
+
+.grid {
+  width: 100%;
+  font-family: var(--sgds-font-family-label);
+  table-layout: auto;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--sgds-font-size-label-sm);
+  line-height: var(--sgds-line-height-2-xs);
+  letter-spacing: var(--sgds-letter-spacing-normal);
+  color: var(--sgds-color-default);
+}
+
+:host([layout="fixed"]) .grid {
+  table-layout: fixed;
+}
+
+.grid th,
+.grid td {
+  height: var(--sgds-data-table-cell-min-height);
+  padding: var(--sgds-data-table-cell-padding-block) var(--sgds-data-table-cell-padding-inline);
+  text-align: left;
+  vertical-align: middle;
+  border-bottom: var(--sgds-border-width-1) solid var(--sgds-data-table-border-color);
+}
+
+.grid th {
+  font-weight: var(--sgds-font-weight-semibold);
+  background-color: var(--sgds-data-table-header-bg);
+}
+
+.grid td {
+  font-weight: var(--sgds-font-weight-regular);
+}
+
+.grid .align-right {
+  text-align: right;
+}
+
+.grid [data-row]:focus-visible {
+  outline: var(--sgds-outline-focus);
+  outline-offset: var(--sgds-outline-offset-focus);
+}
+
+.grid thead tr:hover {
+  background-color: transparent;
+}
+
+.grid tbody tr[part~="row"]:hover {
+  background-color: var(--sgds-data-table-row-hover-bg);
+}
+
+.grid tbody tr[aria-selected="true"] {
+  background-color: var(--sgds-data-table-row-selected-bg);
+}
+
+.grid tbody tr[aria-selected="true"]:hover {
+  background-image: linear-gradient(var(--sgds-data-table-row-hover-bg), var(--sgds-data-table-row-hover-bg));
+}
+
+/* sortable header activator */
+.header-activator {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sgds-gap-2-xs);
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+
+.align-right .header-activator {
+  flex-direction: row-reverse;
+}
+
+.sort-indicator {
+  flex-shrink: 0;
+  color: var(--sgds-color-subtle);
+}
+
+.sort-indicator.sorted {
+  color: var(--sgds-primary-color-default);
+}
+
+/* checkbox column */
+.grid .checkbox-cell {
+  width: var(--sgds-dimension-56);
+  cursor: pointer;
+}
+
+.grid .checkbox-cell sgds-checkbox {
+  pointer-events: none;
+}
+
+/* filter row */
+.grid .filter-row th {
+  padding-block: var(--sgds-padding-2-xs);
+  font-weight: var(--sgds-font-weight-regular);
+}
+
+/* sticky header (header row and filter row stick together) */
+:host([stickyheader]) .grid thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+/* empty and loading states */
+.grid .empty-cell {
+  height: var(--sgds-dimension-128);
+  text-align: center;
+  color: var(--sgds-color-subtle);
+}
+
+.grid tr[part~="loading"] td {
+  border-bottom-color: var(--sgds-data-table-border-color);
+}
+
+.data-grid .footer {
+  border-top: 0;
+}
