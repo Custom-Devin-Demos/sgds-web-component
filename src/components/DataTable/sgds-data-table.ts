@@ -746,7 +746,14 @@ export class SgdsDataTable extends SgdsElement {
                 : pageRows.length === 0
                 ? this._renderGridEmpty(colCount)
                 : pageRows.map((row, index) =>
-                    this._renderBodyRow(row, index, columns, headerRowCount + index, pageOffset + index + 1, headerRowCount)
+                    this._renderBodyRow(
+                      row,
+                      index,
+                      columns,
+                      headerRowCount + index,
+                      pageOffset + index + 1,
+                      headerRowCount
+                    )
                   )}
             </tbody>
           </table>
@@ -836,7 +843,12 @@ export class SgdsDataTable extends SgdsElement {
       ${columns.map((column, index) => {
         const col = index + colOffset;
         if (!column.filterable) {
-          return html`<th part="header-cell" data-row="1" data-col=${col} tabindex=${this._keyboard.tabIndexFor(1, col)}>
+          return html`<th
+            part="header-cell"
+            data-row="1"
+            data-col=${col}
+            tabindex=${this._keyboard.tabIndexFor(1, col)}
+          >
             <span class="visually-hidden">No filter</span>
           </th>`;
         }
@@ -940,7 +952,9 @@ export class SgdsDataTable extends SgdsElement {
     const displayStart = totalCount === 0 || pageRowCount === 0 ? 0 : start + 1;
     return html`<div class="footer" part="footer">
       <span part="pagination-summary">
-        ${this.loading ? nothing : this.paginationSummary || `Showing ${displayStart} to ${end} of ${totalCount} results`}
+        ${this.loading
+          ? nothing
+          : this.paginationSummary || `Showing ${displayStart} to ${end} of ${totalCount} results`}
       </span>
       <sgds-pagination
         part="pagination"

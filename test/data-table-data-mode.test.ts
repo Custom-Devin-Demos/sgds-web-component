@@ -363,7 +363,13 @@ describe("<sgds-data-table> data mode rendering", () => {
 
   it("renders skeleton rows and aria-busy while loading", async () => {
     const el = await fixture<SgdsDataTable>(
-      html`<sgds-data-table label="People" .columns=${columns} .rows=${rows} loading itemsPerPage="3"></sgds-data-table>`
+      html`<sgds-data-table
+        label="People"
+        .columns=${columns}
+        .rows=${rows}
+        loading
+        itemsPerPage="3"
+      ></sgds-data-table>`
     );
     const grid = shadow(el).querySelector("[role='grid']") as HTMLElement;
     expect(grid.getAttribute("aria-busy")).to.equal("true");
